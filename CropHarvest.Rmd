@@ -1,0 +1,1106 @@
+---
+title: "CropHarvest Experiments"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: united 
+    df_print: paged
+    toc: true
+    toc_float: true
+    toc_depth: 6
+---
+
+
+# Setup
+
+## Load Packages
+We start by loading some useful packages. Using the `library` function, we can load these packages if they have previously been installed in your `R`. If they have not been previously installed, replace the `library` function with `install.packages` function and place the package name in quotation marks. That will install the package. Next, run the `library` function again and it will load the package. You only need to install a package once. 
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+library(Rmisc) # Necessary for `summarySE` function. 
+library(ggplot2) # Necessary for `ggplot` function.
+library(kableExtra) # Necessary for `kbl` function.
+library(dplyr) # Necessary for `mutate` function. 
+library(conover.test) # Necessary for 'conover.test' function.
+library(report) # Necessary for 'report' function
+library(reshape2) # Necessary for melt.
+library(ggbeeswarm) # Necessary for geom_beeswarm.
+library(png) # Necessary for png function.
+```
+
+## Dataframe Setup 
+We will set the working directory using the `setwd` function. If you are looking to run this code in your computer, be sure to change the path to your data! Normally we can load dataframes using the `read.csv` function. 
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+setwd("~/Desktop/R") # Set the working directory
+Crops <- read.csv("Data/CropHarvest.csv")
+```
+
+Let's check out the structure using the `str` function.
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+str(Crops)
+```
+We have some factor variables that are currently coded as characters (chr), so we'll need to change the class of those. We also have some numerical and count data, with plenty NA values, because not every crop has all these measurements. We'll subset by crop most likely. 
+
+We can convert the character class variables into factors using the `as.factor` function. We can convert multiple variables into factors by combining `as.factor` with the `mutate` function from the `dplyr` package as well as the `across` function on a `concatenated` list of our variables. 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+Crops <- Crops %>%
+  dplyr::mutate(across(c("Crop", "ID", "Unique_ID", "State", "Treatment", 
+                         "Fruited", "Flowered", "Root.Nodules.Present"), as.factor))
+levels(Crops$Treatment) <- list(Triple15  = "Triple15", OptiMar = "Optimar", 
+                                Sonicated = "Extract", `Non-Sonicated` = "Dilution", Water = "Water")
+```
+
+Great, now let's subset by crop. What crops do we have? 
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+summary(Crops$Crop)
+```
+
+Ok, "Banana", "Bean", and "Eggplant". We can create our dataframes for each crop by first using the `subset` function to select rows where the crop is what we want, within the `droplevels` function to drop unused levels from factors in the dataframe, ensuring that we only have the levels present in each desired dataframe.
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+Banana <- droplevels(subset(Crops, Crops$Crop == "Banana"))
+Cowpea <- droplevels(subset(Crops, Crops$Crop == "Bean"))
+Eggplant <- droplevels(subset(Crops, Crops$Crop == "Eggplant"))
+```
+
+Ok, now let's remove the unnecessary columns from each dataframe. We can do this using the `colSums` function along with `is.na` to calculate the sum of NA values for each column in the dataframe. The resulting logical vector is then compared with the total number of rows `(nrow(myData))` to check if any column has values other than NA. Columns that have at least one non-NA value are retained in the modified dataframe, while columns with only NA values are dropped.
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+Banana <- Banana[, colSums(is.na(Banana)) != nrow(Banana)]
+Cowpea <- Cowpea[, colSums(is.na(Cowpea)) != nrow(Cowpea)]
+Eggplant <- Eggplant[, colSums(is.na(Eggplant)) != nrow(Eggplant)]
+```
+
+Some plants did not live through to harvest, so let's subset those out too. 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+Banana_H <- droplevels(subset(Banana, Banana$State == "Harvested"))
+Cowpea_H <- droplevels(subset(Cowpea, Cowpea$State == "Harvested"))
+Eggplant_H <- droplevels(subset(Eggplant, Eggplant$State == "Harvested"))
+```
+
+# Data Exploration
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+100 - (nrow(Banana) - nrow(Banana_H)) / nrow(Banana) * 100
+100 - (nrow(Cowpea) - nrow(Cowpea_H)) / nrow(Cowpea) * 100
+100 - (nrow(Eggplant) - nrow(Eggplant_H)) / nrow(Eggplant) * 100
+```
+
+Let's do some basic data exploration. 
+
+## Banana
+
+### Variables
+First, we'll use the `head` function to get a view of what the data looks like and verify that we have included the variables of interest.
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+head(Banana_H)
+```
+
+Second, we'll visualize the data distributions of our variables of interest. For this we will create a histogram and kernel density estimate, which is basically a smoothed out histogram using the `geom_histogram` and `geom_density` arguments of `ggplot`. We will also use `geom_vline` to create a vertical line where the mean of our species richness is. 
+
+### Data Distributions
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, fig.show="hold", out.width="33%"}
+ggplot(Banana_H, aes(x=Stem_Length_cm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Stem_Length_cm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Stem Length (cm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Banana_H, aes(x=Leaf_Vein_mm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Leaf_Vein_mm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Leaf Vein Length (mm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Banana_H, aes(x=Leaf_Count)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Leaf_Count, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Leaf Count") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Banana_H, aes(x=Leaf_Width_mm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Leaf_Width_mm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Leaf Width (mm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Banana_H, aes(x=Root_Length_mm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Root_Length_mm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Root Length (mm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Banana_H, aes(x=Fresh_Mass_g)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Fresh_Mass_g, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Fresh Mass (g)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Banana_H, aes(x=Stem_Diameter_mm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Stem_Diameter_mm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Stem Diameter (mm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Banana_H, aes(x=Root_count)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Root_count, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Root Count") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+```
+
+## Cowpea
+
+### Variables
+First, we'll use the `head` function to get a view of what the data looks like and verify that we have included the variables of interest.
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+head(Cowpea_H)
+```
+
+Second, we'll visualize the data distributions of our variables of interest. For this we will create a histogram and kernel density estimate, which is basically a smoothed out histogram using the `geom_histogram` and `geom_density` arguments of `ggplot`. We will also use `geom_vline` to create a vertical line where the mean of our species richness is. 
+
+### Data Distributions
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, fig.show="hold", out.width="33%"}
+ggplot(Cowpea_H, aes(x=Stem_Length_cm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Stem_Length_cm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Stem Length (cm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Cowpea_H, aes(x=Leaf_Vein_mm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Leaf_Vein_mm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Leaf Vein Length (mm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Cowpea_H, aes(x=Leaf_Count)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Leaf_Count, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Leaf Count") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Cowpea_H, aes(x=Leaf_Width_mm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Leaf_Width_mm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Leaf Width (mm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Cowpea_H, aes(x=Root_Length_mm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Root_Length_mm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Root Length (mm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Cowpea_H, aes(x=Node_Count)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Node_Count, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Node Count") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Cowpea_H, aes(x=Fresh_Mass_g)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Fresh_Mass_g, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Fresh Mass (g)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+```
+
+## Eggplant
+
+### Variables
+First, we'll use the `head` function to get a view of what the data looks like and verify that we have included the variables of interest.
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+head(Eggplant_H)
+```
+
+Second, we'll visualize the data distributions of our variables of interest. For this we will create a histogram and kernel density estimate, which is basically a smoothed out histogram using the `geom_histogram` and `geom_density` arguments of `ggplot`. We will also use `geom_vline` to create a vertical line where the mean of our species richness is. 
+
+### Data Distributions
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, fig.show="hold", out.width="33%"}
+ggplot(Eggplant_H, aes(x=Stem_Length_cm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Stem_Length_cm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Stem Length (cm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Eggplant_H, aes(x=Leaf_Vein_mm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Leaf_Vein_mm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Leaf Vein Length (mm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Eggplant_H, aes(x=Leaf_Count)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Leaf_Count, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Leaf Count") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Eggplant_H, aes(x=Leaf_Width_mm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Leaf_Width_mm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Leaf Width (mm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Eggplant_H, aes(x=Root_Length_mm)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Root_Length_mm, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Root Length (mm)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Eggplant_H, aes(x=Node_Count)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Node_Count, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Node Count") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Eggplant_H, aes(x=Fresh_Mass_g)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Fresh_Mass_g, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Fresh Mass (g)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Eggplant_H, aes(x=Dry_Mass_g)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Dry_Mass_g, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Dry Mass (g)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+
+ggplot(Eggplant_H, aes(x=Dry_Root_Mass_g)) + 
+  geom_histogram(aes(y=..density..), colour="black", fill="cornsilk") +
+  geom_density(alpha=.2, fill="#FF6666") + # easier to see distribution
+  geom_vline(aes(xintercept=mean(Dry_Root_Mass_g, na.rm=TRUE)),color="cadetblue4", 
+             linetype="dashed", size=1) + # This adds a blue line where the mean is. 
+  xlab("Dry Root Mass (g)") + 
+  ylab("Density") + 
+  theme_bw(base_size = 15)
+```
+
+# Descriptive Statistics 
+
+Let's get means and standard errors for our variables of interest by Treatment. We'll set the number of digits we want to see to five, using the `options` function. 
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+options(digits = 5)
+```
+
+To obtain our descriptive statistics, we'll use the `summarySE` function and we'll use the square brackets to specify the columns of interest. We'll wrap that within a `kbl` function which will produce a neat, scientifically-styled table.
+
+## Banana
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+kbl(summarySE(Banana_H, measurevar="Stem_Length_cm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Banana_H, measurevar="Leaf_Vein_mm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Banana_H, measurevar= "Leaf_Count", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Banana_H, measurevar="Leaf_Width_mm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Banana_H, measurevar="Root_Length_mm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Banana_H, measurevar= "Fresh_Mass_g", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Banana_H, measurevar= "Stem_Diameter_mm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Banana_H, measurevar= "Root_count", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+```
+
+## Cowpea
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+kbl(summarySE(Cowpea_H, measurevar="Stem_Length_cm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Cowpea_H, measurevar="Leaf_Vein_mm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Cowpea_H, measurevar= "Leaf_Count", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Cowpea_H, measurevar="Leaf_Width_mm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Cowpea_H, measurevar="Root_Length_mm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Cowpea_H, measurevar= "Node_Count", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Cowpea_H, measurevar= "Fresh_Mass_g", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+```
+
+
+## Eggplant
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+kbl(summarySE(Eggplant_H, measurevar="Stem_Length_cm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Eggplant_H, measurevar="Leaf_Vein_mm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Eggplant_H, measurevar= "Leaf_Count", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Eggplant_H, measurevar="Leaf_Width_mm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Eggplant_H, measurevar="Root_Length_mm", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Eggplant_H, measurevar= "Node_Count", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Eggplant_H, measurevar= "Fresh_Mass_g", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Eggplant_H, measurevar= "Dry_Mass_g", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+
+kbl(summarySE(Eggplant_H, measurevar= "Dry_Root_Mass_g", groupvars=c("Treatment"), 
+              na.rm = TRUE)[,-c(4,6,8)], format = "html", 
+    table.attr = "style='width:40%;'") %>% kable_classic()
+```
+
+
+# Figures 
+
+## Banana 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+tgc <- summarySE(Banana_H, measurevar="Stem_Length_cm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Stem_Length_cm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Stem_Length_cm - se, ymax = Stem_Length_cm + se), width = 0.1) +
+  ylab("Stem Length (cm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "lightyellow"))
+
+tgc <- summarySE(Banana_H, measurevar="Leaf_Vein_mm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Leaf_Vein_mm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Leaf_Vein_mm - se, ymax = Leaf_Vein_mm + se), width = 0.1) +
+  ylab("Leaf Vein Length (mm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "lightyellow"))
+
+tgc <- summarySE(Banana_H, measurevar="Leaf_Count", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Leaf_Count, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Leaf_Count - se, ymax = Leaf_Count + se), width = 0.1) +
+  ylab("Leaf Count") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "lightyellow"))
+
+tgc <- summarySE(Banana_H, measurevar="Leaf_Width_mm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Leaf_Width_mm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Leaf_Width_mm - se, ymax = Leaf_Width_mm + se), width = 0.1) +
+  ylab("Leaf Width (mm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "lightyellow"))
+
+tgc <- summarySE(Banana_H, measurevar="Root_Length_mm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Root_Length_mm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Root_Length_mm - se, ymax = Root_Length_mm + se), width = 0.1) +
+  ylab("Root Length (mm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "lightyellow"))
+
+tgc <- summarySE(Banana_H, measurevar="Fresh_Mass_g", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Fresh_Mass_g, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Fresh_Mass_g - se, ymax = Fresh_Mass_g + se), width = 0.1) +
+  ylab("Fresh Mass (g)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "lightyellow"))
+
+tgc <- summarySE(Banana_H, measurevar="Stem_Diameter_mm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Stem_Diameter_mm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Stem_Diameter_mm - se, ymax = Stem_Diameter_mm + se), width = 0.1) +
+  ylab("Stem Diameter (mm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "lightyellow"))
+
+tgc <- summarySE(Banana_H, measurevar="Root_count", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Root_count, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Root_count - se, ymax = Root_count + se), width = 0.1) +
+  ylab("Root Count") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "lightyellow"))
+```
+
+## Cowpea 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+tgc <- summarySE(Cowpea_H, measurevar="Stem_Length_cm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Stem_Length_cm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Stem_Length_cm - se, ymax = Stem_Length_cm + se), width = 0.1) +
+  ylab("Stem Length (cm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#ecdacd"))
+
+tgc <- summarySE(Cowpea_H, measurevar="Leaf_Vein_mm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Leaf_Vein_mm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Leaf_Vein_mm - se, ymax = Leaf_Vein_mm + se), width = 0.1) +
+  ylab("Leaf Vein Length (mm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#ecdacd"))
+
+tgc <- summarySE(Cowpea_H, measurevar="Leaf_Count", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Leaf_Count, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Leaf_Count - se, ymax = Leaf_Count + se), width = 0.1) +
+  ylab("Leaf Count") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#ecdacd"))
+
+tgc <- summarySE(Cowpea_H, measurevar="Leaf_Width_mm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Leaf_Width_mm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Leaf_Width_mm - se, ymax = Leaf_Width_mm + se), width = 0.1) +
+  ylab("Leaf Width (mm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#ecdacd"))
+
+tgc <- summarySE(Cowpea_H, measurevar="Root_Length_mm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Root_Length_mm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Root_Length_mm - se, ymax = Root_Length_mm + se), width = 0.1) +
+  ylab("Root Length (mm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#ecdacd"))
+
+tgc <- summarySE(Cowpea_H, measurevar="Node_Count", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Node_Count, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Node_Count - se, ymax = Node_Count + se), width = 0.1) +
+  ylab("Node Count") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#ecdacd"))
+
+tgc <- summarySE(Cowpea_H, measurevar="Fresh_Mass_g", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Fresh_Mass_g, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Fresh_Mass_g - se, ymax = Fresh_Mass_g + se), width = 0.1) +
+  ylab("Fresh Mass (g)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#ecdacd"))
+```
+
+## Eggplant 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+tgc <- summarySE(Eggplant_H, measurevar="Stem_Length_cm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Stem_Length_cm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Stem_Length_cm - se, ymax = Stem_Length_cm + se), width = 0.1) +
+  ylab("Stem Length (cm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#f1e2fb"))
+
+tgc <- summarySE(Eggplant_H, measurevar="Leaf_Vein_mm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Leaf_Vein_mm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Leaf_Vein_mm - se, ymax = Leaf_Vein_mm + se), width = 0.1) +
+  ylab("Leaf Vein Length (mm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#f1e2fb"))
+
+tgc <- summarySE(Eggplant_H, measurevar="Leaf_Count", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Leaf_Count, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Leaf_Count - se, ymax = Leaf_Count + se), width = 0.1) +
+  ylab("Leaf Count") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#f1e2fb"))
+
+tgc <- summarySE(Eggplant_H, measurevar="Leaf_Width_mm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Leaf_Width_mm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Leaf_Width_mm - se, ymax = Leaf_Width_mm + se), width = 0.1) +
+  ylab("Leaf Width (mm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#f1e2fb"))
+
+tgc <- summarySE(Eggplant_H, measurevar="Root_Length_mm", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Root_Length_mm, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Root_Length_mm - se, ymax = Root_Length_mm + se), width = 0.1) +
+  ylab("Root Length (mm)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#f1e2fb"))
+
+tgc <- summarySE(Eggplant_H, measurevar="Node_Count", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Node_Count, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Node_Count - se, ymax = Node_Count + se), width = 0.1) +
+  ylab("Node Count") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#f1e2fb"))
+
+tgc <- summarySE(Eggplant_H, measurevar="Fresh_Mass_g", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Fresh_Mass_g, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Fresh_Mass_g - se, ymax = Fresh_Mass_g + se), width = 0.1) +
+  ylab("Fresh Mass (g)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#f1e2fb"))
+
+tgc <- summarySE(Eggplant_H, measurevar="Dry_Mass_g", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Dry_Mass_g, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Dry_Mass_g - se, ymax = Dry_Mass_g + se), width = 0.1) +
+  ylab("Dry Mass (g)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#f1e2fb"))
+
+tgc <- summarySE(Eggplant_H, measurevar="Dry_Root_Mass_g", groupvars=c("Treatment"), na.rm = TRUE)
+
+ggplot(tgc, aes(x = Treatment, y = Dry_Root_Mass_g, fill = Treatment)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.5) +
+  geom_errorbar(aes(ymin = Dry_Root_Mass_g - se, ymax = Dry_Root_Mass_g + se), width = 0.1) +
+  ylab("Dry Root Mass (g)") +
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size=15)  +
+  theme(panel.background = element_rect(fill = "#f1e2fb"))
+```
+
+# Statistical Analysis
+Because of the sheer number of tests we need to do, it is not reasonable to evaluate each model's assumptions and select a transformation or GLM suited for each one. Instead, given that most data do not follow a normal data distribution, I suggest we continue using non-parametric statistics only. For this we have the Kruskal-Wallis test, available through the `kruskal.test` function, and the conover post-hoc test, available through the `conover.test` function. 
+
+## Banana
+
+### Stem Length
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Banana_H, Stem_Length_cm ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Banana_H$Stem_Length_cm, Banana_H$Treatment, altp=TRUE, method = "bh") 
+```
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a statistically significant difference in stem length in banana plants (KW X2 = 9.544, p = **0.023**). According to the Conover Post-Hoc Test, this difference is between Optimar and Extract (t = 4.041, p = **0.006**). There is also a marginally significant difference between Extract and Dilution (t = -2.065, p = **0.085**) and between Water and Optimar (t = -2.583, p = **0.062**). 
+</div> <br>
+
+### Leaf Vein Length
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+kruskal.test(data = Banana_H, Leaf_Vein_mm ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Banana_H$Leaf_Vein_mm, Banana_H$Treatment, altp=TRUE, method = "bh") 
+```
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a statistically significant difference in leaf vein length in banana plants (KW X2 = 12.482, p = **0.006**). According to the Conover Post-Hoc Test, this difference is between Optimar and Extract (t = 5.569, p = **0.0003**) as well as between Optimar and Dilution (t = 3.521, p = **0.006**) and Optimar and Water (t = -4.077, p = **0.003**). There is also a marginally significant difference between Extract and Dilution (t = -2.249, p = **0.0599**). 
+</div> <br>
+
+### Leaf Count
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+kruskal.test(data = Banana_H, Leaf_Count ~ Treatment)
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We do NOT have a statistically significant difference in leaf vein length in banana plants (KW X2 = 2.096, p = **0.553**). There is no need for a Conover Post-Hoc Test.
+</div> <br>
+
+### Leaf Width
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+kruskal.test(data = Banana_H, Leaf_Width_mm ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Banana_H$Leaf_Width_mm, Banana_H$Treatment, altp=TRUE, method = "bh") 
+```
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a statistically significant difference in leaf width (mm) in banana plants (KW X2 = 11.153, p = **0.011**). According to the Conover Post-Hoc Test, this difference is between Optimar and Extract (t = 3.434, p = **0.007**) as well as between Optimar and Dilution (t = 4.620, p = **0.002**) and Optimar and Water (t = -3.538, p = **0.009**).
+</div> <br>
+
+### Root Length
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+kruskal.test(data = Banana_H, Root_Length_mm ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Banana_H$Leaf_Width_mm, Banana_H$Treatment, altp=TRUE, method = "bh") 
+```
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**:  We do NOT have a statistically significant difference in root length in banana plants (KW X2 = 3.8589, p = **0.277**). There is no need for a Conover Post-Hoc Test.
+</div> <br>
+
+### Fresh Mass
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+kruskal.test(data = Banana_H, Fresh_Mass_g ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Banana_H$Leaf_Width_mm, Banana_H$Treatment, altp=TRUE, method = "bh") 
+```
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**:  We do NOT have a statistically significant difference in fresh mass (g) in banana plants (KW X2 = 1.775, p = **0.620**). There is no need for a Conover Post-Hoc Test.
+</div> <br>
+
+### Stem Diameter
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+kruskal.test(data = Banana_H, Stem_Diameter_mm ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Banana_H$Leaf_Width_mm, Banana_H$Treatment, altp=TRUE, method = "bh") 
+```
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**:  We do NOT have a statistically significant difference in stem diameter (mm) in banana plants (KW X2 = 3.4792, p = **0.3235**). There is no need for a Conover Post-Hoc Test.
+</div> <br>
+
+### Root Count
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+kruskal.test(data = Banana_H, Root_count ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Banana_H$Root_count, Banana_H$Treatment, altp=TRUE, method = "bh") 
+```
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a MARGINALLY statistically significant difference in leaf width (mm) in banana plants (KW X2 = 7.7933, p = **0.050**). According to the Conover Post-Hoc Test, there is a statistically significant difference between Extract and Dilution (t = -3.319, p = **0.028**). There is also a marginally significant difference between Water and Extract (t = 2.243, p = **0.081**).
+</div> <br>
+
+## Cowpea
+
+### Stem Length
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Cowpea_H, Stem_Length_cm ~ Treatment)
+```
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We do NOT have a statistically significant difference in stem length in banana plants (KW X2 = 7.076, p = **0.132**). There is no need for a Conover Post-Hoc Test. 
+</div> <br>
+
+### Leaf Vein Length (mm)
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Cowpea_H, Leaf_Vein_mm ~ Treatment)
+```
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Cowpea_H$Leaf_Vein_mm, Cowpea_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We do have a MARGINALLY statistically significant difference in stem length in Cowpea plants (KW X2 = 8.831, p = **0.065**), but according to the Conover Post-Hoc Test, there are not pairwise differences with a p-value above 0.1. 
+</div> <br>
+
+### Leaf Count
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Cowpea_H, Leaf_Count ~ Treatment)
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We do NOT have a statistically significant difference in leaf count in Cowpea plants (KW X2 = 5.1625, p = **0.271**). There is no need for a Conover Post-Hoc Test. 
+</div> <br>
+
+### Leaf Width
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Cowpea_H, Leaf_Width_mm ~ Treatment)
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We do NOT have a statistically significant difference in leaf width in Cowpea plants (KW X2 = 6.374, p = **0.173**). There is no need for a Conover Post-Hoc Test. 
+</div> <br>
+
+### Root Length (mm)
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Cowpea_H, Root_Length_mm ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Cowpea_H$Root_Length_mm, Cowpea_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a MARGINALLY statistically significant difference in root length in Cowpea plants (KW X2 = 8.513, p = **0.0745**). According to the Conover Post-Hoc Test, there is a single, marginally significant difference between Optimar and Dilution (t = 2.914, p = **0.071**). 
+</div> <br>
+
+### Node Count
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Cowpea_H, Node_Count ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Cowpea_H$Node_Count, Cowpea_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We do NOT have a statistically significant difference in node count in Cowpea plants (KW X2 = 7.721, p = **0.102**). According to the Conover Post-Hoc Test, there is a single, MARGINALLY significant difference between Water and Dilution (t = 2.897, p = **0.081**). 
+</div> <br>
+
+### Fresh Mass
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Cowpea_H, Fresh_Mass_g ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Cowpea_H$Fresh_Mass_g, Cowpea_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a MARGINALLY statistically significant difference in fresh mass in Cowpea plants (KW X2 = 8.3732, p = **0.079**). According to the Conover Post-Hoc Test, there is a single, MARGINALLY significant difference between Water and Dilution (t = 2.479, p = **0.098**). 
+</div> <br>
+
+## Eggplant 
+
+### Stem Length
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Eggplant_H, Stem_Length_cm ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Eggplant_H$Stem_Length_cm, Eggplant_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a statistically significant difference in stem length in eggplant plants (KW X2 = 9.773, p = **0.044**). According to the Conover Post-Hoc Test, there is a statistically significant difference between Optimar and Dilution (t = 3.086, p = **0.038**).  
+</div> <br>
+
+### Leaf Vein Length 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Eggplant_H, Leaf_Vein_mm ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Eggplant_H$Leaf_Vein_mm, Eggplant_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a statistically significant difference in leaf vein length (mm) in eggplant plants (KW X2 = 14.561, p = **0.006**). According to the Conover Post-Hoc Test, there is a statistically significant difference between Optimar and Dilution (t = 3.725, p = **0.003**) and between Water and Dilution (t = 3.778, p = **0.005**).  
+</div> <br>
+
+### Leaf Count 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Eggplant_H, Leaf_Count ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Eggplant_H$Leaf_Count, Eggplant_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a statistically significant difference in leaf count in eggplant plants (KW X2 = 13.501, p = **0.009**). According to the Conover Post-Hoc Test, there is a statistically significant difference between Triple15 and Dilution (t = 3.724, p = **0.006**) and between Water and Triple15 (t = 2.386, p = **0.004**). There are also MARGINALLY significant differences between Triple15 and Optimar (t = 2.386, p = **0.055**) and Triple15 and Extract (t = 2.505, p = **0.056**).  
+</div> <br>
+
+### Leaf Width 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Eggplant_H, Leaf_Width_mm ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Eggplant_H$Leaf_Width_mm, Eggplant_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a statistically significant difference in leaf width (mm) in eggplant plants (KW X2 = 15.432, p = **0.004**). According to the Conover Post-Hoc Test, there is a statistically significant difference between Water and Dilution (t = 3.706, p = **0.003**) and between Optimar and Dilution (t = 4.225, p = **0.001**) and between Extract and Dilution (t = 2.588, p = **0.045**).  
+</div> <br>
+
+### Root Length 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Eggplant_H, Root_Length_mm ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Eggplant_H$Root_Length_mm, Eggplant_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a statistically significant difference in root length (mm) in eggplant plants (KW X2 = 11.469, p = **0.022**). According to the Conover Post-Hoc Test, there is a statistically significant difference between Dilution and Extract (t = 3.509, p = **0.012**) and between Extract and Water (t = 2.564, p = **0.048**). There is also a marginally significant difference between Triple15 and Extract (t = 2.280, p = 0.071) and between Optimar and Extract (t = 2.659, p = **0.057**). 
+</div> <br>
+
+### Node Count 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Eggplant_H, Node_Count ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Eggplant_H$Node_Count, Eggplant_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a statistically significant difference in node count in eggplant plants (KW X2 = 14.408, p = **0.006**). According to the Conover Post-Hoc Test, there is a statistically significant difference between Triple15 and Dilution (t = 4.221, p = **0.002**), Triple15 and Extract (t = 3.559, p = **0.005**), Triple15 and Optimar (t = 2.451, p = **0.047**), and Triple15 and Water (t = -2.693, p = **0.035**).
+</div> <br>
+
+### Fresh Mass 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Eggplant_H, Fresh_Mass_g ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Eggplant_H$Fresh_Mass_g, Eggplant_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We have a statistically significant difference in fresh mass (g) in eggplant plants (KW X2 = 12.782, p = **0.012**). According to the Conover Post-Hoc Test, there is a statistically significant difference between Triple15 and Dilution (t = 2.888, p = **0.006**) and Optimar and Dilution (t = 3.731, p = **0.006**). We also have a MARGINALLY significant difference between Water and Dilution (t = 2.532, p = **0.052**).
+</div> <br>
+
+### Dry Mass 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Eggplant_H, Dry_Mass_g ~ Treatment)
+```
+
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE}
+conover.test(Eggplant_H$Dry_Mass_g, Eggplant_H$Treatment, altp=TRUE, method = "bh") 
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We do NOT have a statistically significant difference in dry mass (g) in eggplant plants (KW X2 = 7.624, p = **0.106**). According to the Conover Post-Hoc Test, there is a MARGINALLY statistically significant difference between Dilution and Optimar (t = 2.725, p = **0.097**).
+</div> <br>
+
+### Dry Root Mass 
+```{r, echo = T, message=FALSE, warning=FALSE, error=FALSE, out.width="70%", fig.align = "center"}
+options(digits = 7)
+kruskal.test(data = Eggplant_H, Dry_Root_Mass_g ~ Treatment)
+```
+
+<div style="background-color: rgba(236, 110, 38); padding: 1px; margin: 0px; border: 4px solid black; color: black;">
+**INTERPRETATION**: We do NOT have a statistically significant difference in dry mass (g) in eggplant plants (KW X2 = 3.264, p = **0.515**). There is no need for a Conover Post-Hoc Test.
+</div> <br>
+
+# Final Figures
+
+## Variable Scaling and Prep. 
+
+Lets try out the Z transformation (X-Mean/standard deviation). Z-transformation (also known as standardization) is a statistical technique used to transform a dataset into a standard normal distribution with a mean of 0 and a standard deviation of 1. This transformation is often applied to data to make it more amenable to certain statistical analyses or to compare data on different scales. We can easily perform a Z-transformation (standardization) on a dataset using the `scale` function. We will apply the scale function to all the biometric variables by using a `for loop` that iterates `scale` over each column specified in a vector named `columns_to_scale`, which holds the name of all the biometric variables. 
+
+```{r, echo = F, message=FALSE, warning=FALSE, error=FALSE}
+columns_to_scale <- c("Stem_Length_cm", "Leaf_Vein_mm", "Leaf_Count", "Leaf_Width_mm", "Root_Length_mm", "Node_Count", "Fresh_Mass_g", "Stem_Diameter_mm", "Root_count", "Dry_Mass_g", "Dry_Root_Mass_g")
+
+Cropz <-Crops
+
+for (col in columns_to_scale) {
+  Cropz[, col] <- scale(Cropz[, col])
+}
+
+
+```
+
+Next we use the melt function to create a single column for each of our biometric variables. 
+```{r, echo = F, message=FALSE, warning=FALSE, error=FALSE}
+Cropz_Melt <- melt(Cropz, measure.var=c("Stem_Length_cm", "Leaf_Vein_mm", "Leaf_Count", "Leaf_Width_mm", "Root_Length_mm", "Node_Count", "Fresh_Mass_g", "Stem_Diameter_mm", "Root_count", "Dry_Mass_g", "Dry_Root_Mass_g"))
+
+names(Cropz_Melt)[names(Cropz_Melt) == "variable"] <- "Biometric"
+names(Cropz_Melt)[names(Cropz_Melt) == "value"] <- "z.score"
+```
+
+Next we drop the Treatment categories that corresponded to dead seedlings.
+```{r, echo = F, message=FALSE, warning=FALSE, error=FALSE}
+Cropz_Melt <- droplevels(subset(Cropz_Melt, Cropz_Melt$Treatment != "-"))
+Cropz_Melt <- droplevels(subset(Cropz_Melt, Cropz_Melt$Treatment != ""))
+```
+
+## Manuscript Figure
+```{r, echo = F, message=FALSE, warning=FALSE, error=FALSE}
+tgc <- summarySE(Cropz_Melt, measurevar="z.score", 
+                 groupvars=c("Biometric", "Crop", "Treatment"), na.rm = TRUE)
+levels(tgc$Crop) <- list(Banana = "Banana", Cowpea = "Bean", Eggplant = "Eggplant")
+
+levels(tgc$Biometric) <- list(`Stem Length` = "Stem_Length_cm",  
+                              `Leaf Vein Length` = "Leaf_Vein_mm",
+                              `Leaf Count` = "Leaf_Count", 
+                              `Leaf Width` = "Leaf_Width_mm", 
+                              `Root Length` = "Root_Length_mm", 
+                              `Node Count` = "Node_Count", 
+                              `Fresh Seedling Mass` = "Fresh_Mass_g", 
+                              `Stem Diameter` = "Stem_Diameter_mm", 
+                              `Root Count` = "Root_count", 
+                              `Dry Seedling Mass` = "Dry_Mass_g", 
+                              `Dry Root Mass` = "Dry_Root_Mass_g")
+
+filtered_data <- tgc %>%
+  group_by(Crop, Biometric) %>%
+  filter(sum(!is.na(z.score)) > 0) %>%
+  ungroup()
+
+gg <- ggplot(filtered_data, aes(x = Biometric, y = z.score, fill = Treatment)) +
+  geom_beeswarm(shape = 21, color = "black", size = 3, alpha = 0.7, z = 0) +
+  labs(x = "Biometric Variable", y = "Mean Z-Score") + 
+  scale_fill_manual(values = c("#ADD8C6", "#E6E6FA", "#FFB6C1", "#eaa372", "#ADD8E6")) +
+  theme_classic(base_size = 10) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.3)) + 
+  facet_wrap(~ Crop, scales = "free_x") 
+
+# Add vertical lines for each x-axis label
+x_labels <- unique(filtered_data$Biometric)
+for (x_label in x_labels) {
+  gg <- gg + geom_vline(xintercept = x_label, linetype = "dotted", color = "grey", size = 0.5)
+}
+
+png("~/Desktop/CES/Manuscripts/Crops/Figures/Figure 1 (Crop Response).png", width = 130, height = 100, units = 'mm', res = 300)
+gg
+dev.off()
+```
+
+# Package Report
+We will use the `report` function to obtain all the bibliographical information we need on the R packages used in this analysis. 
+```{r, echo = F, message=FALSE, warning=FALSE, error=FALSE}
+report(sessionInfo())
+```
+
+
